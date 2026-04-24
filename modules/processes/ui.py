@@ -165,34 +165,14 @@ class ProcessesUI(ctk.CTkFrame):
         threading.Thread(target=self._updater_loop, daemon=True).start()
 
     def _updater_loop(self):
-        # Initial CPU call for all processes to prime the counters
-        psutil.cpu_percent(interval=None)
+        import modules.processes.backend as proc_backend
         
         while not self._stop.is_set():
             try:
-                # Iterate and collect data
-                new_cache = {}
-                for p in psutil.process_iter(attrs=["pid","name","username","memory_percent"]):
-                    try:
-                        info = p.info
-                        pid = info["pid"]
-                        # interval=None is important for non-blocking
-                        cpu = p.cpu_percent(interval=None)
-                        mem = info["memory_percent"] or 0.0
-                        
-                        new_cache[pid] = {
-                            "pid": pid,
-                            "name": info["name"] or "Unknown",
-                            "user": info["username"] or "System",
-                            "cpu": cpu,
-                            "mem": mem
-                        }
-                    except (psutil.NoSuchProcess, psutil.AccessDenied):
-                        continue
-                
-                self._process_cache = new_cache
+                # Decoupling: Offload the OS-level polling to the centralized backend.
+                # The backend manages rate limiting (1 FPS TTL) and caching.
+                self._process_cache = proc_backend.fetch_all_processes()
                 self.parent.after(0, self._update_ui)
-
             except Exception:
                 pass
 
@@ -251,8 +231,10 @@ class ProcessesUI(ctk.CTkFrame):
     # BUTTON ACTIONS
     # --------------------------------------------------
     def refresh_now(self):
-        # Trigger an immediate cache refresh would be complex with threads,
-        # but we can force a UI update from current cache.
+        from modules.utils.cache import global_cache
+        global_cache.invalidate("processes_data")
+        import modules.processes.backend as proc_backend
+        self._process_cache = proc_backend.fetch_all_processes()
         self._update_ui()
 
     def _get_selected_pids(self):

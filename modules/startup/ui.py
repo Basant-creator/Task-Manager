@@ -53,7 +53,7 @@ class StartupUI(ctk.CTkFrame):
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=padx, pady=(4, 16))
 
-        self.btn_refresh = ctk.CTkButton(top, text="Refresh", width=125, command=self.load_entries)
+        self.btn_refresh = ctk.CTkButton(top, text="Refresh", width=125, command=lambda: self.load_entries(force_refresh=True))
         self.btn_enable = ctk.CTkButton(top, text="Enable", width=125, fg_color="#00d29c")
         self.btn_disable = ctk.CTkButton(top, text="Disable", width=125, fg_color="#e66b6b")
         self.btn_open = ctk.CTkButton(top, text="Open Location", width=150, fg_color=NEON_ACCENT)
@@ -125,49 +125,27 @@ class StartupUI(ctk.CTkFrame):
     # --------------------------------------------------
     # LOAD ENTRIES
     # --------------------------------------------------
-    def load_entries(self):
-        threading.Thread(target=self._worker, daemon=True).start()
+    def load_entries(self, force_refresh=False):
+        threading.Thread(target=self._worker, args=(force_refresh,), daemon=True).start()
 
-    def _worker(self):
-        if not IS_WINDOWS:
-            return
+    def _worker(self, force_refresh=False):
+        import modules.startup.backend as startup_backend
+        
+        # Pull from backend cache or refresh
+        entries_dict = startup_backend.list_startup_apps(force_refresh=force_refresh)
 
+        # Update UI in main thread safely
+        self.parent.after(0, self._update_ui, entries_dict)
+
+    def _update_ui(self, entries):
         # Clear table
         for i in self.tree.get_children():
             self.tree.delete(i)
-
-        run_keys = [
-            (winreg.HKEY_CURRENT_USER,  r"Software\Microsoft\Windows\CurrentVersion\Run"),
-            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run")
-        ]
-
-        entries = []
-        seen = set()
-
-        for root, path in run_keys:
-            try:
-                with winreg.OpenKey(root, path) as k:
-                    i = 0
-                    while True:
-                        try:
-                            name, value, _ = winreg.EnumValue(k, i)
-                            if name not in seen:
-                                seen.add(name)
-                                loc = "HKCU" if root == winreg.HKEY_CURRENT_USER else "HKLM"
-                                entries.append((name, value, f"{loc}:{path}", "Yes"))
-                            i += 1
-                        except OSError:
-                            break
-            except:
-                continue
-
-        # Sort by name
-        entries.sort(key=lambda x: x[0].lower())
-
-        # Insert into table
+            
         for idx, e in enumerate(entries):
             tag = "even" if idx % 2 == 0 else "odd"
-            self.tree.insert("", "end", values=e, tags=(tag,))
+            vals = (e["name"], e["command"], e["location"], "Yes" if e["enabled"] else "No")
+            self.tree.insert("", "end", values=vals, tags=(tag,))
 
     # --------------------------------------------------
     # BUTTON ACTIONS

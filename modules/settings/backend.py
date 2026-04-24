@@ -6,7 +6,7 @@ import os
 
 
 class SettingsManager:
-    def _init_(self, config_file='config.json'):
+    def __init__(self, config_file='config.json'):
         self.config_file = config_file
         self.settings = self.load_settings()
     

@@ -1,6 +1,8 @@
 # modules/startup/backend.py
 import platform
 import os
+from modules.utils.cache import global_cache
+
 apps = []
 
 if platform.system().lower() == "windows":
@@ -9,7 +11,13 @@ if platform.system().lower() == "windows":
     except Exception:
         winreg = None
 
-def list_startup_apps():
+def list_startup_apps(force_refresh=False):
+    cache_key = "startup_apps"
+    if not force_refresh:
+        cached = global_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     result = []
     system = platform.system().lower()
     if system == "windows" and winreg:
@@ -26,10 +34,14 @@ def list_startup_apps():
             while True:
                 try:
                     name, cmd, _ = winreg.EnumValue(reg, idx)
-                    result.append({"name": name, "command": cmd, "location": f"{hive}\\{path}", "enabled": True, "hive": hive, "path": path})
+                    hive_name = "HKCU" if hive == winreg.HKEY_CURRENT_USER else "HKLM"
+                    result.append({"name": name, "command": cmd, "location": f"{hive_name}:{path}", "enabled": True, "hive": hive, "path": path})
                 except OSError:
                     break
-                idx += 1
+                except Exception:
+                    pass
+                finally:
+                    idx += 1
     elif system == "linux":
         conf = os.path.expanduser("~/.config/autostart")
         if os.path.isdir(conf):
@@ -37,6 +49,11 @@ def list_startup_apps():
                 if f.endswith(".desktop"):
                     p = os.path.join(conf, f)
                     result.append({"name": f.replace(".desktop",""), "command": p, "location": p, "enabled": True})
+    
+    # Sort result for UI
+    result.sort(key=lambda x: x["name"].lower())
+    global_cache.set(cache_key, result, ttl=None)
+    
     return result
 
 def disable_startup(app):
